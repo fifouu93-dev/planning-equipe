@@ -62,6 +62,7 @@ function col(t){const u=t.toUpperCase();
  return '#b4c7e7';}
 let cur=(location.hash||'').replace('#','');
 if(!state.weeks.some(w=>w.id===cur))cur=state.weeks[0].id;
+let teamOpen=false,delArm=null;
 let sel=null,mode='idle',picker=false,cap=null,timer=null,dirty=false,canSave=true,saved='';
 const root=document.getElementById('root');
 function wk(){return state.weeks.find(w=>w.id===cur);}
@@ -74,6 +75,7 @@ function render(){
  state.weeks.forEach(w=>{const b=el('button','tab'+(w.id===cur?' on':''),w.label+' · '+fmt(w.mon,0));b.onclick=()=>{cur=w.id;location.hash=w.id;sel=null;mode='idle';picker=false;render();};h.appendChild(b);});
  const pr=el('button','btn','🖨 PDF');pr.onclick=()=>window.print();h.appendChild(pr);
  const sh=el('button','btn','📤 Envoyer l\'image');sh.onclick=shareImg;h.appendChild(sh);
+ const tm=el('button','btn','👥 Équipe');tm.onclick=()=>{teamOpen=!teamOpen;delArm=null;sel=null;render();};h.appendChild(tm);
  const ad=el('button','btn','+ Semaine');ad.onclick=addWeek;h.appendChild(ad);
  h.appendChild(el('div','sp'));
  const u=el('button','btn','↶ Annuler');u.disabled=!state.undo.length;u.onclick=undo;h.appendChild(u);
@@ -89,7 +91,7 @@ function render(){
  t.appendChild(hr2);
  state.groups.forEach(g=>{
   const gr=document.createElement('tr');const gc=el('td','grp',g.name.toUpperCase());gc.colSpan=11;gr.appendChild(gc);t.appendChild(gr);
-  g.members.forEach(n=>{
+  sm(g).forEach(n=>{
    const tr=document.createElement('tr');tr.appendChild(el('td','name',n.replace(' 50%','')));
    (wk().grid[n]||[]).forEach((p,i)=>{
     const td=document.createElement('td');td.style.background=col(p);
@@ -108,6 +110,18 @@ function render(){
 }
 function renderPanel(){
  const pn=document.getElementById('panel');pn.textContent='';
+ if(teamOpen){pn.className='show';pn.appendChild(el('div','t','Équipe : touche un nom pour le retirer (2 touches pour confirmer), ou ajoute un nouvel agent. Tous les plannings sont mis à jour.'));
+  state.groups.forEach(g=>{const gh=el('div','t',g.name.toUpperCase());gh.style.margin='8px 0 0';gh.style.fontWeight='bold';pn.appendChild(gh);
+   const chips=el('div','chips');chips.style.marginTop='4px';
+   sm(g).forEach(n=>{const lab=n.replace(' 50%','');const x=el('div','chip',delArm===n?'Retirer '+lab+' ? Touche pour confirmer':lab+' ✕');x.style.background=delArm===n?'#ffd6d6':'#fff';
+    x.onclick=()=>{if(delArm===n){removeAgent(n);}else{delArm=n;renderPanel();}};chips.appendChild(x);});
+   pn.appendChild(chips);});
+  const r=el('div','row');r.style.marginTop='10px';
+  const inp=document.createElement('input');inp.className='new';inp.placeholder='Nom du nouvel agent';r.appendChild(inp);
+  const sl=document.createElement('select');sl.className='new';state.groups.forEach(g=>{const o=document.createElement('option');o.value=g.name;o.textContent=g.name;sl.appendChild(o);});r.appendChild(sl);
+  const ok=el('button','btn','Ajouter');ok.onclick=()=>{addAgent(inp.value,sl.value);};r.appendChild(ok);
+  const cl=el('button','btn','Fermer');cl.onclick=()=>{teamOpen=false;delArm=null;render();};r.appendChild(cl);
+  pn.appendChild(r);return;}
  if(!sel){pn.className='';return;}
  pn.className='show';
  const cell=wk().grid[sel.n][sel.i];
@@ -140,7 +154,7 @@ function addWeek(){const last=state.weeks[state.weeks.length-1];const d=new Date
 function isoWeek(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const n=t.getUTCDay()||7;t.setUTCDate(t.getUTCDate()+4-n);const y=new Date(Date.UTC(t.getUTCFullYear(),0,1));return Math.ceil(((t-y)/86400000+1)/7);}
 function drawImg(){
  const CW=132,CH=44,NW=120,HH=30,GH=26,T=44,P=14;
- const rows=[];state.groups.forEach(g=>{rows.push({g:g.name});g.members.forEach(n=>rows.push({n:n}));});
+ const rows=[];state.groups.forEach(g=>{rows.push({g:g.name});sm(g).forEach(n=>rows.push({n:n}));});
  const W=P*2+NW+CW*10,H=P*2+T+HH*2+rows.reduce((a,r)=>a+(r.g?GH:CH),0);
  const sc=2,cv=document.createElement('canvas');cv.width=W*sc;cv.height=H*sc;
  const c=cv.getContext('2d');c.scale(sc,sc);c.fillStyle='#fff';c.fillRect(0,0,W,H);
@@ -170,6 +184,12 @@ function shareImg(){
   const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>{window.open(u,'_blank');},300);
  },'image/png');}
+function addAgent(name,gname){name=name.trim().toUpperCase();if(!name)return;if(state.groups.some(g=>g.members.indexOf(name)>=0))return;
+ const g=state.groups.find(x=>x.name===gname);if(!g)return;g.members.push(name);state.weeks.forEach(w=>{w.grid[name]=Array(10).fill('ABSENCE');});
+ dirty=true;render();clearTimeout(timer);timer=setTimeout(save,900);}
+function removeAgent(n){state.groups.forEach(g=>{g.members=g.members.filter(m=>m!==n);});state.weeks.forEach(w=>{delete w.grid[n];});
+ state.undo=[];delArm=null;dirty=true;render();clearTimeout(timer);timer=setTimeout(save,900);}
+function sm(g){return g.members.slice().sort((a,b)=>a.replace(' 50%','').localeCompare(b.replace(' 50%',''),'fr'));}
 function pushUndo(changes){state.undo.push({w:cur,c:changes});if(state.undo.length>30)state.undo.shift();}
 function setCell(n,i,v){const g=wk().grid[n];if(g[i]===v){return;}pushUndo([{n:n,i:i,v:g[i]}]);g[i]=v;after();}
 function swap(a,b){const g=wk().grid;if(a.n===b.n&&a.i===b.i)return;const va=g[a.n][a.i],vb=g[b.n][b.i];
